@@ -507,6 +507,14 @@ impl Signature {
 
         ret
     }
+
+    pub fn is_canonical_for_eos(&self) -> bool {
+        let ret = self.serialize();
+        (ret[0] & 0x80 == 0)
+            && !((ret[0] == 0) && (ret[1] & 0x80 == 0))
+            && (ret[32] & 0x80 == 0)
+            && !((ret[32] == 0) && (ret[33] & 0x80 == 0))
+    }
 }
 
 impl Message {
