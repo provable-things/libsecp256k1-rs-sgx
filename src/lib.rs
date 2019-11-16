@@ -650,3 +650,54 @@ pub fn sign(message: &Message, seckey: &SecretKey) -> (Signature, RecoveryId) {
         s: sigs,
     }, RecoveryId(recid))
 }
+
+/// Canonically sign a given message using the secret key, per EOS' definition
+/// of what constitutes "canon".
+pub fn sign_canonical_for_eos(
+    message: &Message,
+    seckey: &SecretKey
+) -> (Signature, RecoveryId) {
+    let seckey_b32 = seckey.0.b32();
+    let message_b32 = message.0.b32();
+    let mut drbg = HmacDRBG::<Sha256>::new(&seckey_b32, &message_b32, &[]);
+    let mut i = 0;
+    let mut nonce = Scalar::from_int(0);
+    let mut overflow;
+    let result;
+    loop {
+        let generated = drbg.generate::<U32>(None);
+        overflow = nonce.set_b32(array_ref!(generated, 0, 32));
+
+        if !overflow && !nonce.is_zero() {
+            match ECMULT_GEN_CONTEXT.sign_raw(&seckey.0, &message.0, &nonce) {
+                Ok(val) => {
+                    let (sigr, sigs, _) = val.clone();
+                    let signature = Signature {
+                        r: sigr,
+                        s: sigs,
+                    };
+                    if signature.is_canonical_for_eos() {
+                        result = val;
+                        break
+                    } else {
+                        i += 1;
+                        nonce = Scalar::from_int(i);
+                    }
+                },
+                Err(_) => (),
+            }
+        }
+    }
+    #[allow(unused_assignments)]
+    {
+        nonce = Scalar::default();
+    }
+    let (sigr, sigs, recid) = result;
+    (
+        Signature {
+            r: sigr,
+            s: sigs,
+        },
+        RecoveryId(recid)
+    )
+}
